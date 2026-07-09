@@ -38,5 +38,34 @@ def create_issue():
     return jsonify(new_issue), 201
 
 
+# UPDATE an existing issue
+@app.route("/issues/<int:issue_id>", methods=["PUT"])
+def update_issue(issue_id):
+    data = request.get_json()
+
+    for issue in issues:
+        if issue["id"] == issue_id:
+            issue["title"] = data.get("title", issue["title"])
+            issue["description"] = data.get("description", issue["description"])
+            issue["category"] = data.get("category", issue["category"])
+            issue["severity"] = data.get("severity", issue["severity"])
+            issue["status"] = data.get("status", issue["status"])
+            issue["affected_system"] = data.get("affected_system", issue["affected_system"])
+            issue["reporter"] = data.get("reporter", issue["reporter"])
+            return jsonify(issue), 200
+
+    return jsonify({"error": "Issue not found"}), 404
+
+# DELETE an issue
+@app.route("/issues/<int:issue_id>", methods=["DELETE"])
+def delete_issue(issue_id):
+    for issue in issues:
+        if issue["id"] == issue_id:
+            issues.remove(issue)
+            return jsonify({"message": f"Issue {issue_id} deleted"}), 200
+
+    return jsonify({"error": "Issue not found"}), 404
+
+
 if __name__ == "__main__":
     app.run(debug=True)
