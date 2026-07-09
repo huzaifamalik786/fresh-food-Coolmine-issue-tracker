@@ -1,0 +1,3 @@
+backend/issues.db
+__pycache__/
+*.pyc
