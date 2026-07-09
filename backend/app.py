@@ -1,10 +1,32 @@
 from flask import Flask, jsonify, request
+import sqlite3
 
 app = Flask(__name__)
+DATABASE = "issues.db"
 
-# Temporary in-memory storage for issues (will move to a database later)
-issues = []
-next_id = 1
+# Create the issues table if it doesn't already exist
+def init_db():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS issues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            category TEXT,
+            severity TEXT,
+            status TEXT,
+            affected_system TEXT,
+            reporter TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def get_db_connection():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row  # lets us access columns by name
+    return conn
 
 @app.route("/")
 def home():
@@ -13,59 +35,83 @@ def home():
 # GET all issues
 @app.route("/issues", methods=["GET"])
 def get_issues():
-    return jsonify(issues)
+    conn = get_db_connection()
+    issues = conn.execute("SELECT * FROM issues").fetchall()
+    conn.close()
+    return jsonify([dict(issue) for issue in issues])
 
 # CREATE a new issue
 @app.route("/issues", methods=["POST"])
 def create_issue():
-    global next_id
     data = request.get_json()
 
-    new_issue = {
-        "id": next_id,
-        "title": data.get("title"),
-        "description": data.get("description"),
-        "category": data.get("category"),        # "Bug" or "Vulnerability"
-        "severity": data.get("severity"),         # Low/Medium/High/Critical
-        "status": "Open",
-        "affected_system": data.get("affected_system"),
-        "reporter": data.get("reporter")
-    }
+    conn = get_db_connection()
+    cursor = conn.execute(
+        """INSERT INTO issues (title, description, category, severity, status, affected_system, reporter)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            data.get("title"),
+            data.get("description"),
+            data.get("category"),
+            data.get("severity"),
+            "Open",
+            data.get("affected_system"),
+            data.get("reporter"),
+        ),
+    )
+    conn.commit()
+    new_id = cursor.lastrowid
+    conn.close()
 
-    issues.append(new_issue)
-    next_id += 1
-
-    return jsonify(new_issue), 201
-
+    return jsonify({"id": new_id, **data, "status": "Open"}), 201
 
 # UPDATE an existing issue
 @app.route("/issues/<int:issue_id>", methods=["PUT"])
 def update_issue(issue_id):
     data = request.get_json()
+    conn = get_db_connection()
+    existing = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
 
-    for issue in issues:
-        if issue["id"] == issue_id:
-            issue["title"] = data.get("title", issue["title"])
-            issue["description"] = data.get("description", issue["description"])
-            issue["category"] = data.get("category", issue["category"])
-            issue["severity"] = data.get("severity", issue["severity"])
-            issue["status"] = data.get("status", issue["status"])
-            issue["affected_system"] = data.get("affected_system", issue["affected_system"])
-            issue["reporter"] = data.get("reporter", issue["reporter"])
-            return jsonify(issue), 200
+    if existing is None:
+        conn.close()
+        return jsonify({"error": "Issue not found"}), 404
 
-    return jsonify({"error": "Issue not found"}), 404
+    conn.execute(
+        """UPDATE issues SET title=?, description=?, category=?, severity=?, status=?, affected_system=?, reporter=?
+           WHERE id=?""",
+        (
+            data.get("title", existing["title"]),
+            data.get("description", existing["description"]),
+            data.get("category", existing["category"]),
+            data.get("severity", existing["severity"]),
+            data.get("status", existing["status"]),
+            data.get("affected_system", existing["affected_system"]),
+            data.get("reporter", existing["reporter"]),
+            issue_id,
+        ),
+    )
+    conn.commit()
+    updated = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    conn.close()
+
+    return jsonify(dict(updated)), 200
 
 # DELETE an issue
 @app.route("/issues/<int:issue_id>", methods=["DELETE"])
 def delete_issue(issue_id):
-    for issue in issues:
-        if issue["id"] == issue_id:
-            issues.remove(issue)
-            return jsonify({"message": f"Issue {issue_id} deleted"}), 200
+    conn = get_db_connection()
+    existing = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
 
-    return jsonify({"error": "Issue not found"}), 404
+    if existing is None:
+        conn.close()
+        return jsonify({"error": "Issue not found"}), 404
 
+    conn.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": f"Issue {issue_id} deleted"}), 200
 
 if __name__ == "__main__":
+    init_db()
     app.run(debug=True)
