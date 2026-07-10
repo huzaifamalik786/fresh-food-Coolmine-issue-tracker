@@ -32,11 +32,27 @@ def get_db_connection():
 def home():
     return jsonify({"message": "Issue Tracker API is running"})
 
-# GET all issues
 @app.route("/issues", methods=["GET"])
 def get_issues():
+    status = request.args.get("status")
+    severity = request.args.get("severity")
+    category = request.args.get("category")
+
+    query = "SELECT * FROM issues WHERE 1=1"
+    params = []
+
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    if severity:
+        query += " AND severity = ?"
+        params.append(severity)
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+
     conn = get_db_connection()
-    issues = conn.execute("SELECT * FROM issues").fetchall()
+    issues = conn.execute(query, params).fetchall()
     conn.close()
     return jsonify([dict(issue) for issue in issues])
 
