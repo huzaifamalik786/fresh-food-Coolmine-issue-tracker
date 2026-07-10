@@ -40,10 +40,20 @@ def get_issues():
     conn.close()
     return jsonify([dict(issue) for issue in issues])
 
-# CREATE a new issue
+
 @app.route("/issues", methods=["POST"])
 def create_issue():
     data = request.get_json()
+
+    # Validation: required fields
+    if not data.get("title"):
+        return jsonify({"error": "Title is required"}), 400
+
+    if not data.get("category") or data.get("category") not in ["Bug", "Vulnerability"]:
+        return jsonify({"error": "Category must be 'Bug' or 'Vulnerability'"}), 400
+
+    if not data.get("severity") or data.get("severity") not in ["Low", "Medium", "High", "Critical"]:
+        return jsonify({"error": "Severity must be Low, Medium, High, or Critical"}), 400
 
     conn = get_db_connection()
     cursor = conn.execute(
@@ -64,6 +74,7 @@ def create_issue():
     conn.close()
 
     return jsonify({"id": new_id, **data, "status": "Open"}), 201
+
 
 # UPDATE an existing issue
 @app.route("/issues/<int:issue_id>", methods=["PUT"])
