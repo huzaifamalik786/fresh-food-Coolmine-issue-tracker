@@ -1,11 +1,22 @@
+"""
+Fresh Food Coolmine - Issue & Vulnerability Tracker API
+A REST API built with Flask for tracking software bugs and security
+vulnerabilities. Data is stored persistently in a SQLite database.
+"""
+
 from flask import Flask, jsonify, request
 import sqlite3
 
 app = Flask(__name__)
 DATABASE = "issues.db"
 
-# Create the issues table if it doesn't already exist
+
 def init_db():
+    """
+    Creates the issues table if it doesn't already exist.
+    Using 'IF NOT EXISTS' means this is safe to run every time the
+    app starts, without wiping existing data.
+    """
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -23,21 +34,40 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 def get_db_connection():
+    """
+    Opens a new database connection for a single request.
+    row_factory lets us access columns by name (e.g. row["title"])
+    instead of by numeric index, which makes converting to JSON easier.
+    """
     conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row  # lets us access columns by name
+    conn.row_factory = sqlite3.Row
     return conn
+
 
 @app.route("/")
 def home():
+    """Simple health-check route to confirm the API is running."""
     return jsonify({"message": "Issue Tracker API is running"})
 
+
+# ---------- READ ----------
 @app.route("/issues", methods=["GET"])
 def get_issues():
+    """
+    Returns all issues, with optional filtering via query parameters:
+    /issues?status=Open
+    /issues?severity=High
+    /issues?category=Bug
+    Filters can be combined, e.g. /issues?status=Open&severity=High
+    """
     status = request.args.get("status")
     severity = request.args.get("severity")
     category = request.args.get("category")
 
+    # "WHERE 1=1" is a harmless always-true condition that lets us
+    # safely append "AND ..." clauses only for filters that were provided
     query = "SELECT * FROM issues WHERE 1=1"
     params = []
 
@@ -57,11 +87,17 @@ def get_issues():
     return jsonify([dict(issue) for issue in issues])
 
 
+# ---------- CREATE ----------
 @app.route("/issues", methods=["POST"])
 def create_issue():
+    """
+    Creates a new issue. Requires a valid title, category, and severity.
+    New issues always start with status "Open".
+    """
     data = request.get_json()
 
-    # Validation: required fields
+    # Validation: reject the request early if required fields are missing
+    # or invalid, before touching the database.
     if not data.get("title"):
         return jsonify({"error": "Title is required"}), 400
 
@@ -72,6 +108,8 @@ def create_issue():
         return jsonify({"error": "Severity must be Low, Medium, High, or Critical"}), 400
 
     conn = get_db_connection()
+    # Using "?" placeholders (parameterised queries) instead of building
+    # the SQL string directly protects against SQL injection attacks.
     cursor = conn.execute(
         """INSERT INTO issues (title, description, category, severity, status, affected_system, reporter)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -92,9 +130,14 @@ def create_issue():
     return jsonify({"id": new_id, **data, "status": "Open"}), 201
 
 
-# UPDATE an existing issue
+# ---------- UPDATE ----------
 @app.route("/issues/<int:issue_id>", methods=["PUT"])
 def update_issue(issue_id):
+    """
+    Updates an existing issue by ID. Only fields included in the request
+    body are changed; any field left out keeps its current value.
+    Returns 404 if no issue with that ID exists.
+    """
     data = request.get_json()
     conn = get_db_connection()
     existing = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
@@ -123,9 +166,14 @@ def update_issue(issue_id):
 
     return jsonify(dict(updated)), 200
 
-# DELETE an issue
+
+# ---------- DELETE ----------
 @app.route("/issues/<int:issue_id>", methods=["DELETE"])
 def delete_issue(issue_id):
+    """
+    Deletes an issue by ID. Returns 404 if no issue with that ID exists,
+    otherwise confirms the deletion.
+    """
     conn = get_db_connection()
     existing = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
 
@@ -138,6 +186,7 @@ def delete_issue(issue_id):
     conn.close()
 
     return jsonify({"message": f"Issue {issue_id} deleted"}), 200
+
 
 if __name__ == "__main__":
     init_db()
